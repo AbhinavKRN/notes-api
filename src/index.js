@@ -34,7 +34,7 @@ app.use((req, res, next) => {
     const route = req.route ? req.route.path : 'other';
     end({ method: req.method, route });
     httpRequests.inc({ method: req.method, route, status: res.statusCode });
-    if (quiet.has(route) || quiet.has(req.path)) return;
+    if (quiet.has(route)) return;
     trace.end(`${req.method} ${route}`, res.statusCode);
     log(res.statusCode >= 500 ? 'error' : 'info', 'request', {
       method: req.method, path: req.originalUrl, status: res.statusCode, traceId: trace.traceId,

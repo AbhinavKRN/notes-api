@@ -3,7 +3,7 @@
 A small notes app. Express backend, Postgres for storage, plain HTML/JS frontend. Runs on Kubernetes (kind) with Helm, ships through GitHub Actions and is monitored with Prometheus.
 
 - `src/index.js`: `/healthz` (liveness), `/readyz` (checks the DB), `/version` (build commit), `/metrics`, JSON logs with a trace id, graceful shutdown
-- `deploy/helm/notes-api`: app Deployment and NodePort Service, Postgres StatefulSet with PVC, NetworkPolicy for the DB, ServiceMonitor and alerts
+- `deploy/helm/notes-api`: app Deployment and NodePort Service, Postgres StatefulSet with PVC, NetworkPolicy for the DB, ServiceMonitor and alerts, Jaeger for traces
 - `.github/workflows/ci.yml`: test, build, scan, push; gated deploy on `v*` tags
 
 ## Run locally

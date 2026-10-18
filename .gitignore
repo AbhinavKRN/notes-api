@@ -1,13 +1,3 @@
 node_modules/
 .env
 *.log
-.runner
-.credentials
-.credentials_rsaparams
-/bin/
-/externals/
-/_diag/
-actions-runner*.zip
-/config.cmd
-/run.cmd
-/run-helper.*
