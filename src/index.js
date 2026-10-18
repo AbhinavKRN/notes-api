@@ -2,6 +2,7 @@ const path = require('path');
 const express = require('express');
 const { Pool } = require('pg');
 const client = require('prom-client');
+const { span } = require('./trace');
 
 const pool = new Pool();
 const app = express();
@@ -24,15 +25,20 @@ const httpDuration = new client.Histogram({
 
 let shuttingDown = false;
 
+const quiet = new Set(['/healthz', '/readyz', '/metrics']);
+
 app.use((req, res, next) => {
   const end = httpDuration.startTimer();
+  const trace = span();
   res.on('finish', () => {
     const route = req.route ? req.route.path : 'other';
     end({ method: req.method, route });
     httpRequests.inc({ method: req.method, route, status: res.statusCode });
-    if (!['/healthz', '/readyz', '/metrics'].includes(route)) {
-      log(res.statusCode >= 500 ? 'error' : 'info', 'request', { method: req.method, path: req.originalUrl, status: res.statusCode });
-    }
+    if (quiet.has(route) || quiet.has(req.path)) return;
+    trace.end(`${req.method} ${route}`, res.statusCode);
+    log(res.statusCode >= 500 ? 'error' : 'info', 'request', {
+      method: req.method, path: req.originalUrl, status: res.statusCode, traceId: trace.traceId,
+    });
   });
   next();
 });

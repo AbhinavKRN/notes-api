@@ -2,7 +2,7 @@
 
 A small notes app. Express backend, Postgres for storage, plain HTML/JS frontend. Runs on Kubernetes (kind) with Helm, ships through GitHub Actions and is monitored with Prometheus.
 
-- `src/index.js`: `/healthz` (liveness), `/readyz` (checks the DB), `/version` (build commit), `/metrics`, JSON logs, graceful shutdown
+- `src/index.js`: `/healthz` (liveness), `/readyz` (checks the DB), `/version` (build commit), `/metrics`, JSON logs with a trace id, graceful shutdown
 - `deploy/helm/notes-api`: app Deployment and NodePort Service, Postgres StatefulSet with PVC, NetworkPolicy for the DB, ServiceMonitor and alerts
 - `.github/workflows/ci.yml`: test, build, scan, push; gated deploy on `v*` tags
 
@@ -31,6 +31,7 @@ helm upgrade --install notes-api deploy/helm/notes-api -n notes --set image.tag=
 - Grafana: `kubectl -n monitoring port-forward svc/kps-grafana 3000:80`
 - Prometheus: `kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090`
 - Logs: `kubectl -n notes logs -l app=notes-api`
+- Traces: `kubectl -n notes port-forward svc/jaeger 16686`, then http://localhost:16686 (service `notes-api`)
 - Alerts: `NotesApiDown`, `NotesApiHighErrorRate` (over 5% 5xx), `NotesApiSlow` (p95 over 500ms)
 
 ## CI/CD and releases
@@ -44,5 +45,5 @@ The rolling update uses `maxUnavailable: 0`, and pods that never become ready ar
 ## Limitations
 
 - Single-node kind; the node image is pinned to Kubernetes 1.34 because Docker Desktop here runs cgroup v1.
-- One Postgres replica, no backups. No tracing or central log store.
+- One Postgres replica, no backups. Logs stay on the pod; there is no log store.
 - Deploys need the self-hosted runner online.

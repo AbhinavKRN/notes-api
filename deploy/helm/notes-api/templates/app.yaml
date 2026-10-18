@@ -43,6 +43,8 @@ spec:
             - name: PGDATABASE
               valueFrom:
                 secretKeyRef: { name: {{ .Values.dbSecret }}, key: database }
+            - name: OTEL_URL
+              value: http://jaeger:4318/v1/traces
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5
