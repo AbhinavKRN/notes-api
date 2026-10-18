@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-api
+  labels:
+    app: notes-api
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: notes-api
+  template:
+    metadata:
+      labels:
+        app: notes-api
+        version: {{ .Values.image.tag | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ required "set image.tag to a commit sha" .Values.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PGHOST
+              value: notes-db
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.dbSecret }}, key: username }
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.dbSecret }}, key: password }
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.dbSecret }}, key: database }
+            - name: OTEL_URL
+              value: http://jaeger:4318/v1/traces
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-api
+  labels:
+    app: notes-api
+spec:
+  type: NodePort
+  selector:
+    app: notes-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: {{ .Values.nodePort }}

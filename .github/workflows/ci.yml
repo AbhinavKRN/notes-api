@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/abhinavkrn/notes-api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+      - uses: azure/setup-helm@v5
+      - run: helm lint deploy/helm/notes-api --set image.tag=ci
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --build-arg GIT_SHA=$GITHUB_SHA -t $IMAGE:$GITHUB_SHA .
+      - name: scan image
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0 image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $IMAGE:$GITHUB_SHA
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: docker push $IMAGE:$GITHUB_SHA
+
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: [self-hosted, windows]
+    environment: local
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7
+      - name: load image into kind
+        run: |
+          $image = "${env:IMAGE}:${env:GITHUB_SHA}"
+          $env:GITHUB_TOKEN | docker login ghcr.io -u $env:GITHUB_ACTOR --password-stdin
+          docker pull $image
+          kind load docker-image $image --name notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: helm upgrade
+        run: |
+          helm upgrade --install notes-api deploy/helm/notes-api -n notes `
+            --set image.tag=$env:GITHUB_SHA --rollback-on-failure --wait --timeout 5m
+          if ($LASTEXITCODE) { exit 1 }
+      - name: verify running version
+        run: |
+          $v = Invoke-RestMethod http://localhost:8080/version
+          if ($v.commit -ne $env:GITHUB_SHA) { Write-Error "running $($v.commit), expected $env:GITHUB_SHA"; exit 1 }
+          helm history notes-api -n notes --max 5
