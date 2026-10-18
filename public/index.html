@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    form { display: grid; gap: .5rem; margin-bottom: 1.5rem; }
+    input, textarea, button { font: inherit; padding: .5rem; }
+    li { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid #eee; }
+    li small { color: #777; }
+    ul { list-style: none; padding: 0; }
+  </style>
+</head>
+<body>
+  <h1>Notes</h1>
+  <form id="new">
+    <input name="title" placeholder="Title" required>
+    <textarea name="body" placeholder="Write something" rows="3"></textarea>
+    <button>Add</button>
+  </form>
+  <ul id="list"></ul>
+  <script src="app.js"></script>
+</body>
+</html>
