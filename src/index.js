@@ -1,19 +1,70 @@
 const path = require('path');
 const express = require('express');
 const { Pool } = require('pg');
+const client = require('prom-client');
 
 const pool = new Pool();
 const app = express();
 
+const log = (level, msg, extra = {}) =>
+  console.log(JSON.stringify({ time: new Date().toISOString(), level, msg, ...extra }));
+
+client.collectDefaultMetrics();
+const httpRequests = new client.Counter({
+  name: 'http_requests_total',
+  help: 'HTTP requests',
+  labelNames: ['method', 'route', 'status'],
+});
+const httpDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request latency',
+  labelNames: ['method', 'route'],
+  buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 2],
+});
+
+let shuttingDown = false;
+
+app.use((req, res, next) => {
+  const end = httpDuration.startTimer();
+  res.on('finish', () => {
+    const route = req.route ? req.route.path : 'other';
+    end({ method: req.method, route });
+    httpRequests.inc({ method: req.method, route, status: res.statusCode });
+    if (!['/healthz', '/readyz', '/metrics'].includes(route)) {
+      log(res.statusCode >= 500 ? 'error' : 'info', 'request', { method: req.method, path: req.originalUrl, status: res.statusCode });
+    }
+  });
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
+
+app.get('/readyz', async (req, res) => {
+  if (shuttingDown) return res.status(503).json({ status: 'shutting down' });
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch (err) {
+    res.status(503).json({ status: 'database unavailable' });
+  }
+});
+
+app.get('/version', (req, res) => res.json({ commit: process.env.GIT_SHA || 'dev' }));
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
 
 app.get('/api/notes', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT id, title, body, created_at FROM notes ORDER BY id DESC');
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    log('error', 'failed to load notes', { error: err.message });
     res.status(500).json({ error: 'failed to load notes' });
   }
 });
@@ -28,7 +79,7 @@ app.post('/api/notes', async (req, res) => {
     );
     res.status(201).json(rows[0]);
   } catch (err) {
-    console.error(err);
+    log('error', 'failed to save note', { error: err.message });
     res.status(500).json({ error: 'failed to save note' });
   }
 });
@@ -39,24 +90,33 @@ app.delete('/api/notes/:id', async (req, res) => {
     if (result.rowCount === 0) return res.status(404).json({ error: 'not found' });
     res.status(204).end();
   } catch (err) {
-    console.error(err);
+    log('error', 'failed to delete note', { error: err.message });
     res.status(500).json({ error: 'failed to delete note' });
   }
 });
 
 const port = process.env.PORT || 3000;
 
-pool
-  .query(`CREATE TABLE IF NOT EXISTS notes (
-    id SERIAL PRIMARY KEY,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  )`)
-  .then(() => {
-    app.listen(port, () => console.log(`notes-api listening on ${port}`));
-  })
-  .catch((err) => {
-    console.error('could not connect to database', err);
-    process.exit(1);
-  });
+if (require.main === module) {
+  pool
+    .query(`CREATE TABLE IF NOT EXISTS notes (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`)
+    .then(() => {
+      const server = app.listen(port, () => log('info', 'notes-api listening', { port, commit: process.env.GIT_SHA }));
+      process.on('SIGTERM', () => {
+        shuttingDown = true;
+        log('info', 'SIGTERM received, draining');
+        setTimeout(() => server.close(() => pool.end().then(() => process.exit(0))), 5000);
+      });
+    })
+    .catch((err) => {
+      log('error', 'could not connect to database', { error: err.message });
+      process.exit(1);
+    });
+}
+
+module.exports = app;
