@@ -97,14 +97,25 @@ app.delete('/api/notes/:id', async (req, res) => {
 
 const port = process.env.PORT || 3000;
 
+async function initDb(attempts = 30) {
+  for (let i = 1; ; i++) {
+    try {
+      return await pool.query(`CREATE TABLE IF NOT EXISTS notes (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+    } catch (err) {
+      if (i >= attempts) throw err;
+      log('warn', 'database not ready, retrying', { attempt: i, error: err.message });
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 if (require.main === module) {
-  pool
-    .query(`CREATE TABLE IF NOT EXISTS notes (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL DEFAULT '',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )`)
+  initDb()
     .then(() => {
       const server = app.listen(port, () => log('info', 'notes-api listening', { port, commit: process.env.GIT_SHA }));
       process.on('SIGTERM', () => {

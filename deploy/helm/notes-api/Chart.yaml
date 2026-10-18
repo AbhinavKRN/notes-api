@@ -1,0 +1,5 @@
+apiVersion: v2
+name: notes-api
+description: Notes app and its Postgres database
+version: 0.1.0
+appVersion: "1.0.0"
